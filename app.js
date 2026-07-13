@@ -243,7 +243,7 @@ function setupAuth() {
   // Listener para el estado de autenticación
   _supabase.auth.onAuthStateChange((event, session) => {
     console.log('[RosaCRM] Auth event:', event);
-    if (STATE.auth.session?.access_token === session?.access_token && event !== 'SIGNED_IN') return;
+    if (STATE.auth.session?.access_token === session?.access_token && event !== 'SIGNED_IN' && event !== 'INITIAL_SESSION') return;
     STATE.auth.session = session;
     STATE.auth.user = session?.user;
     if (session && session.user) {
@@ -2280,3 +2280,4 @@ window.applyTeamModeFilter = function() {
     STATE.deals = STATE.allDeals.filter(d => !d.user_id || d.user_id === currentUserId);
   }
 };
+
