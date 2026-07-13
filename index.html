@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RosaCRM - Sistema de Ventas & Cartera de Clientes</title>
+    <!-- Google Fonts: Inter para diseño premium -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Lucide Icons — versión UMD fija para garantizar window.lucide -->
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.454.0/dist/umd/lucide.min.js"></script>
+    <!-- Chart.js — versión UMD fija para garantizar window.Chart -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+    <!-- Supabase JS Client SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Script de migración: fuerza re-sync desde Supabase, limpia datos hardcodeados -->
+    <script>
+        (function() {
+            try {
+                const saved = localStorage.getItem('rosacrm_state');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    // Limpiar clientes hardcodeados (IDs client_1..N) y forzar re-sync
+                    const hasOldData = parsed.clients && parsed.clients.some(c =>
+                        c.id && c.id.match(/^client_\d+$/)
+                    );
+                    const hasOldFormat = parsed.meta && parsed.meta.googleScriptUrl !== undefined;
+                    if (hasOldData || hasOldFormat) {
+                        // Limpiar TODA la caché — el GViz va a traer los datos frescos
+                        localStorage.removeItem('rosacrm_state');
+                    }
+                }
+            } catch(e) {
+                localStorage.removeItem('rosacrm_state');
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- ══════════════════════════════════════════════════════════
+         SPLASH SCREEN — Logo animado al abrir el CRM
+         ══════════════════════════════════════════════════════════ -->
+    <div id="splash-screen">
+        <div id="splash-inner">
+            <video id="splash-video"
+                   src="logo_animated.mp4"
+                   autoplay
+                   muted
+                   playsinline
+                   preload="auto">
+            </video>
+            <!-- Barra de progreso sutil -->
+            <div id="splash-progress-bar">
+                <div id="splash-progress-fill"></div>
+            </div>
+            <!-- Subtítulo debajo del video -->
+            <p id="splash-subtitle">Cargando tu CRM&hellip;</p>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════
+         AUTH CONTAINER — Login y Registro
+         ══════════════════════════════════════════════════════════ -->
+    <div id="auth-container" class="auth-container hidden">
+        <div class="auth-card glass">
+            <div class="auth-header">
+                <img src="logo_rose.png?v=5" alt="Grupo Rosa" class="auth-logo">
+                <h2 id="auth-title">Bienvenido al CRM</h2>
+                <p id="auth-subtitle">Inicia sesión para continuar</p>
+            </div>
+            
+            <form id="auth-form">
+                <div class="form-group">
+                    <label for="auth-email">Correo Electrónico</label>
+                    <input type="email" id="auth-email" required placeholder="tu@correo.com">
+                </div>
+                <div class="form-group">
+                    <label for="auth-password">Contraseña</label>
+                    <input type="password" id="auth-password" required placeholder="••••••••" minlength="6">
+                </div>
+                <div id="auth-error" class="auth-error hidden"></div>
+                <div id="auth-success" class="auth-success hidden"></div>
+                <button type="submit" class="btn btn-primary w-100" id="btn-auth-action">Iniciar Sesión</button>
+            </form>
+            
+            <div class="auth-divider">
+                <span>O continuar con</span>
+            </div>
+            
+            <button class="btn btn-secondary w-100 btn-google" id="btn-auth-google">
+                <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                </svg>
+                Google
+            </button>
+            
+            <p class="auth-toggle-text">
+                <span id="auth-toggle-prompt">¿No tienes cuenta?</span> 
+                <a href="#" id="auth-toggle-link">Regístrate aquí</a>
+            </p>
+        </div>
+    </div>
+
+    <div class="app-container hidden" id="main-app-container">
+        <!-- Sidebar de Navegación -->
+        <aside class="sidebar">
+            <!-- Logo Oficial -->
+            <div class="logo-area-official" style="display:flex; justify-content:center; align-items:center; padding:16px 10px; border-bottom:1px solid rgba(255,255,255,0.06); width:100%; box-sizing:border-box; margin-bottom:12px; overflow:hidden;">
+                <img src="logo_rose.png?v=5" alt="Grupo Rosa Logo" class="sidebar-logo-img"
+                     style="max-width:85%; max-height:100px; object-fit:contain; filter: saturate(2.5) contrast(1.2) drop-shadow(0 0 8px rgba(255, 0, 0, 0.6)); transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); cursor: pointer;"
+                     onmouseover="this.style.transform='scale(1.12)'; this.style.filter='saturate(3.5) brightness(1.2) drop-shadow(0 0 20px rgba(255, 0, 0, 0.95))'; this.style.animation='logo-pulse 1s infinite alternate';"
+                     onmouseout="this.style.transform='scale(1)'; this.style.filter='saturate(2.5) contrast(1.2) drop-shadow(0 0 8px rgba(255, 0, 0, 0.6))'; this.style.animation='none';">
+            </div>
+            
+            <nav class="nav-menu">
+                <button class="nav-item active" data-target="dashboard">
+                    <i data-lucide="bar-chart-3"></i>
+                    <span>Reporte Directivo</span>
+                </button>
+                <button class="nav-item" data-target="pipeline">
+                    <i data-lucide="kanban-square"></i>
+                    <span>Pipeline de Ventas</span>
+                </button>
+                <button class="nav-item" data-target="clientes">
+                    <i data-lucide="users"></i>
+                    <span>Cartera Clientes</span>
+                </button>
+                <button class="nav-item" data-target="configuracion">
+                    <i data-lucide="database"></i>
+                    <span>Base de Datos</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="avatar" id="sidebar-user-avatar">?</div>
+                    <div class="profile-info">
+                        <p class="profile-name" id="sidebar-user-name">Usuario</p>
+                        <p class="profile-role">Miembro del equipo</p>
+                    </div>
+                </div>
+                <button class="btn btn-secondary w-100 mt-2" id="btn-logout" style="display: flex; justify-content: center; align-items: center; gap: 8px;">
+                    <i data-lucide="log-out" style="width: 16px; height: 16px;"></i> Cerrar Sesión
+                </button>
+            </div>
+        </aside>
+
+        <!-- Contenedor Principal -->
+        <main class="main-content">
+            <!-- Header Superior -->
+            <header class="top-header">
+                <div class="header-title">
+                    <h1 id="page-title">Reporte Directivo</h1>
+                    <p id="page-subtitle" class="text-muted">Análisis en tiempo real del rendimiento comercial</p>
+                </div>
+                <div class="header-actions" style="display: flex; align-items: center; gap: 10px;">
+                    <!-- Campana de Notificaciones e Insights -->
+                    <div class="notification-wrapper" style="position: relative;">
+                        <button class="btn btn-secondary btn-icon-only" id="btn-notifications-bell" title="Insights y Avisos" style="position: relative; padding: 10px; width: 40px; height: 40px; border-radius: 50%; justify-content: center; display: flex; align-items: center; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); cursor: pointer;">
+                            <i data-lucide="bell" style="width: 18px; height: 18px;"></i>
+                            <span class="bell-badge" id="bell-notifications-count" style="position: absolute; top: -3px; right: -3px; background: var(--accent-primary); color: white; border-radius: 50%; width: 18px; height: 18px; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #0a0f1e; box-shadow: 0 0 10px rgba(99,102,241,0.5);">0</span>
+                        </button>
+                        
+                        <!-- Panel de Notificaciones Dropdown -->
+                        <div class="notifications-panel glass hidden" id="notifications-panel" style="position: absolute; top: 48px; right: 0; width: 340px; max-height: 480px; overflow-y: auto; z-index: 2000; border-radius: var(--radius-sm); border: 1px solid var(--glass-border); padding: 16px; background: rgba(10, 15, 30, 0.96); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px); box-shadow: 0 10px 30px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 12px; margin-top: 4px; border-top: 3px solid var(--accent-primary);">
+                            <div class="notifications-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px;">
+                                <h4 style="font-size: 13px; font-weight: 700; margin: 0; color: var(--text-primary); display: flex; align-items: center; gap: 6px;"><i data-lucide="sparkles" style="width: 14px; height: 14px; color: var(--accent-warning);"></i> Insights y Avisos</h4>
+                                <span class="badge badge-muted" id="btn-clear-notifications" style="font-size: 9px; cursor: pointer; padding: 2px 6px;">Ocultar</span>
+                            </div>
+                            <div class="notifications-list" id="notifications-list" style="display: flex; flex-direction: column; gap: 8px;">
+                                <!-- Inyectado dinámicamente -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" id="btn-quick-client">
+                        <i data-lucide="user-plus"></i> + Agregar Cliente
+                    </button>
+                    <button class="btn btn-secondary" id="btn-quick-deal">
+                        <i data-lucide="plus"></i> Nuevo Negocio
+                    </button>
+                </div>
+            </header>
+
+            <!-- SECCIÓN: REPORTES (DASHBOARD) -->
+            <section id="section-dashboard" class="content-section active">
+                <!-- Auto-sync banner (se muestra solo si hay error de conexión) -->
+                <div class="sync-wizard-card glass animate-slide-up hidden" id="sync-wizard" style="margin-bottom: 24px;">
+                    <div class="wizard-header" style="display: flex; justify-content: space-between; align-items: center; gap: 16px;">
+                        <div class="wizard-title-group">
+                            <span class="wizard-badge" style="background-color: rgba(245, 158, 11, 0.15); color: #f59e0b; padding: 4px 10px; font-size: 11px; font-weight: 600; border-radius: 20px; border: 1px solid rgba(245, 158, 11, 0.3); display: inline-block;">⚠️ Sin conexión a Supabase</span>
+                            <h2 style="font-size: 18px; font-weight: 700; color: var(--text-primary); margin: 8px 0 4px 0;">No se pudo cargar el Directorio</h2>
+                            <p class="text-muted" style="font-size: 13px;">
+                                Para resolverlo: en tu Supabase ve a <strong>Archivo → Compartir → Publicar en la web</strong>, selecciona la hoja <em>Directorio</em> y haz clic en <strong>Publicar</strong>. Luego presiona Reintentar.<br>
+                                <small style="opacity:0.6">También puedes abrir la consola del navegador (F12) para ver el error exacto.</small>
+                            </p>
+                        </div>
+                        <button class="btn btn-primary" id="btn-wizard-connect" style="flex-shrink: 0;">
+                            <i data-lucide="refresh-cw"></i> Reintentar Sincronización
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tarjetas resumen Directorio -->
+                <div class="kpi-grid" style="margin-bottom:0">
+                    <div class="kpi-card glass">
+                        <div class="kpi-header">
+                            <span class="kpi-title">Total Clientes (Directorio)</span>
+                            <div class="kpi-icon-container bg-info"><i data-lucide="users"></i></div>
+                        </div>
+                        <div class="kpi-value" id="stat-total-clients">—</div>
+                        <div class="kpi-subtext">Sincronizado con Supabase</div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-header">
+                            <span class="kpi-title">Ventas Históricas Totales</span>
+                            <div class="kpi-icon-container bg-success"><i data-lucide="circle-dollar-sign"></i></div>
+                        </div>
+                        <div class="kpi-value" id="stat-ventas-hist">$0</div>
+                        <div class="kpi-subtext">Acumulado del Directorio</div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-header">
+                            <span class="kpi-title">Top Cliente</span>
+                            <div class="kpi-icon-container bg-warning"><i data-lucide="award"></i></div>
+                        </div>
+                        <div class="kpi-value" id="stat-top-value" style="font-size:18px">$0</div>
+                        <div class="kpi-subtext" id="stat-top-client">—</div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-header">
+                            <span class="kpi-title">Clientes en Pipeline</span>
+                            <div class="kpi-icon-container bg-purple"><i data-lucide="kanban-square"></i></div>
+                        </div>
+                        <div class="kpi-value" id="stat-clients-w-deal">0</div>
+                        <div class="kpi-subtext" id="stat-zonas">0 zonas</div>
+                    </div>
+                </div>
+
+                <!-- Grid de KPIs Ejecutivos -->
+                <div class="kpi-grid">
+                    <!-- Forecast -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-header">
+                            <span class="kpi-title">Previsión Financiera (Forecast)</span>
+                            <div class="kpi-icon-container bg-info"><i data-lucide="trending-up"></i></div>
+                        </div>
+                        <div class="kpi-value" id="kpi-forecast">$0.00</div>
+                        <div class="kpi-subtext" id="kpi-forecast-sub">Ponderado según etapa</div>
+                    </div>
+
+                    <!-- Conversion Rate -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-header">
+                            <span class="kpi-title">Tasa de Conversión</span>
+                            <div class="kpi-icon-container bg-success"><i data-lucide="percent"></i></div>
+                        </div>
+                        <div class="kpi-value" id="kpi-conversion">0%</div>
+                        <div class="kpi-subtext">De Prospección a Cierre Ganado</div>
+                    </div>
+
+                    <!-- Ticket Promedio -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-header">
+                            <span class="kpi-title">Ticket Promedio</span>
+                            <div class="kpi-icon-container bg-warning"><i data-lucide="badge-dollar-sign"></i></div>
+                        </div>
+                        <div class="kpi-value" id="kpi-ticket">$0.00</div>
+                        <div class="kpi-subtext">Valor de cierre ganado</div>
+                    </div>
+
+                    <!-- Ciclo de Ventas -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-header">
+                            <span class="kpi-title">Ciclo de Ventas</span>
+                            <div class="kpi-icon-container bg-purple"><i data-lucide="clock"></i></div>
+                        </div>
+                        <div class="kpi-value" id="kpi-cycle">0 días</div>
+                        <div class="kpi-subtext">Duración promedio del cierre</div>
+                    </div>
+
+                    <!-- Cumplimiento de Cuota -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-header">
+                            <span class="kpi-title">Meta Comercial</span>
+                            <div class="kpi-icon-container bg-primary"><i data-lucide="target"></i></div>
+                        </div>
+                        <div class="kpi-value" id="kpi-quota">0%</div>
+                        <div class="kpi-subtext" id="kpi-quota-sub">Meta mensual: $50,000</div>
+                    </div>
+
+                    <!-- CAC -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-header">
+                            <span class="kpi-title">CAC (Costo Adquisición)</span>
+                            <div class="kpi-icon-container bg-danger"><i data-lucide="user-check"></i></div>
+                        </div>
+                        <div class="kpi-value" id="kpi-cac">$0.00</div>
+                        <div class="kpi-subtext" id="kpi-cac-sub">Calculado este período</div>
+                    </div>
+                </div>
+
+                <!-- Gráficos Analíticos -->
+                <div class="charts-grid">
+                    <div class="chart-card glass">
+                        <h3>Distribución y Forecast por Etapa</h3>
+                        <div class="chart-container">
+                            <canvas id="chart-pipeline"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card glass">
+                        <h3>Análisis de Cierres (Win / Loss Ratio)</h3>
+                        <div class="chart-container">
+                            <canvas id="chart-win-loss"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Calculadora de CAC y Configuración de Metas -->
+                <div class="bottom-tools-grid">
+                    <!-- Calculadora CAC -->
+                    <div class="tool-card glass">
+                        <div class="tool-card-header">
+                            <i data-lucide="calculator"></i>
+                            <h3>Calculadora CAC Automática</h3>
+                        </div>
+                        <p class="tool-description">Ingresa los costos del periodo para automatizar el cálculo de Costo de Adquisición de Clientes.</p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="cac-marketing">Gastos Marketing ($)</label>
+                                <input type="number" id="cac-marketing" value="5000" min="0">
+                            </div>
+                            <div class="form-group">
+                                <label for="cac-ventas">Gastos Ventas ($)</label>
+                                <input type="number" id="cac-ventas" value="3000" min="0">
+                            </div>
+                        </div>
+                        <div class="form-row mt-2">
+                            <div class="form-group">
+                                <label for="cac-nuevos-clientes">Nuevos Clientes Adquiridos (Manual/Auto)</label>
+                                <div class="input-with-checkbox">
+                                    <input type="number" id="cac-nuevos-clientes" value="10" min="1">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="cac-auto-clientes" checked> Auto
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Configuración de Cuotas y Objetivos -->
+                    <div class="tool-card glass">
+                        <div class="tool-card-header">
+                            <i data-lucide="sliders"></i>
+                            <h3>Objetivos y Probabilidades</h3>
+                        </div>
+                        <p class="tool-description">Ajusta la meta comercial del mes y las probabilidades del forecast de ventas.</p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="config-quota">Meta de Ventas Mensual ($)</label>
+                                <input type="number" id="config-quota" value="50000" step="5000" min="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="config-currency">Moneda</label>
+                                <select id="config-currency">
+                                    <option value="MXN">Peso Mexicano (MXN)</option>
+                                    <option value="USD">Dólar (USD)</option>
+                                    <option value="EUR">Euro (EUR)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECCIÓN: PIPELINE DE VENTAS (KANBAN) -->
+            <section id="section-pipeline" class="content-section">
+                <!-- Filtros del Pipeline -->
+                <div class="pipeline-filters-bar glass">
+                    <div class="filter-group">
+                        <label for="pipeline-filter-search">Buscar Negocio:</label>
+                        <div class="search-input-wrapper">
+                            <i data-lucide="search"></i>
+                            <input type="text" id="pipeline-filter-search" placeholder="Nombre del negocio o empresa...">
+                        </div>
+                    </div>
+                    <div class="filter-group">
+                        <label for="pipeline-filter-priority">Prioridad:</label>
+                        <select id="pipeline-filter-priority">
+                            <option value="all">Todas</option>
+                            <option value="high">Alta</option>
+                            <option value="medium">Media</option>
+                            <option value="low">Baja</option>
+                        </select>
+                    </div>
+                    <div class="filter-group" style="margin-left: auto;">
+                        <button class="btn btn-secondary btn-icon" id="btn-export-pipeline-csv" title="Exportar Pipeline a CSV">
+                            <i data-lucide="download"></i> Exportar CSV
+                        </button>
+                    </div>
+                    <div class="pipeline-stats">
+                        <span class="badge badge-info"><span id="pipeline-total-deals">0</span> Negocios activos</span>
+                        <span class="badge badge-success"><span id="pipeline-total-value">$0.00</span> En Pipeline</span>
+                    </div>
+                </div>
+
+                <!-- Selector de Etapas en Móvil -->
+                <div class="mobile-stage-selector hidden-desktop">
+                    <button class="stage-tab active" data-stage="0">Prospección</button>
+                    <button class="stage-tab" data-stage="1">Calificación</button>
+                    <button class="stage-tab" data-stage="2">Descubrimiento</button>
+                    <button class="stage-tab" data-stage="3">Propuesta</button>
+                    <button class="stage-tab" data-stage="4">Negociación</button>
+                    <button class="stage-tab" data-stage="5">Cierre</button>
+                    <button class="stage-tab" data-stage="6">Post-Venta</button>
+                </div>
+
+                <!-- Contenedor del Tablero Kanban -->
+                <div class="kanban-board">
+                    <!-- Columnas se renderizan dinámicamente con JS -->
+                    <!-- 1. Prospección -->
+                    <div class="kanban-column" data-stage="0">
+                        <div class="column-header">
+                            <div class="column-title">
+                                <span class="dot bg-slate"></span>
+                                <h4>Prospección</h4>
+                            </div>
+                            <span class="column-count">0</span>
+                        </div>
+                        <div class="column-subvalue">$0.00</div>
+                        <div class="kanban-cards-container" id="stage-0-cards"></div>
+                    </div>
+
+                    <!-- 2. Calificación -->
+                    <div class="kanban-column" data-stage="1">
+                        <div class="column-header">
+                            <div class="column-title">
+                                <span class="dot bg-purple"></span>
+                                <h4>Calificación</h4>
+                            </div>
+                            <span class="column-count">0</span>
+                        </div>
+                        <div class="column-subvalue">$0.00</div>
+                        <div class="kanban-cards-container" id="stage-1-cards"></div>
+                    </div>
+
+                    <!-- 3. Descubrimiento y Diagnóstico -->
+                    <div class="kanban-column" data-stage="2">
+                        <div class="column-header">
+                            <div class="column-title">
+                                <span class="dot bg-blue"></span>
+                                <h4>Descubrimiento</h4>
+                            </div>
+                            <span class="column-count">0</span>
+                        </div>
+                        <div class="column-subvalue">$0.00</div>
+                        <div class="kanban-cards-container" id="stage-2-cards"></div>
+                    </div>
+
+                    <!-- 4. Propuesta y Presentación -->
+                    <div class="kanban-column" data-stage="3">
+                        <div class="column-header">
+                            <div class="column-title">
+                                <span class="dot bg-amber"></span>
+                                <h4>Propuesta</h4>
+                            </div>
+                            <span class="column-count">0</span>
+                        </div>
+                        <div class="column-subvalue">$0.00</div>
+                        <div class="kanban-cards-container" id="stage-3-cards"></div>
+                    </div>
+
+                    <!-- 5. Negociación -->
+                    <div class="kanban-column" data-stage="4">
+                        <div class="column-header">
+                            <div class="column-title">
+                                <span class="dot bg-orange"></span>
+                                <h4>Negociación</h4>
+                            </div>
+                            <span class="column-count">0</span>
+                        </div>
+                        <div class="column-subvalue">$0.00</div>
+                        <div class="kanban-cards-container" id="stage-4-cards"></div>
+                    </div>
+
+                    <!-- 6. Cierre (Ganado / Perdido) -->
+                    <div class="kanban-column" data-stage="5">
+                        <div class="column-header">
+                            <div class="column-title">
+                                <span class="dot bg-success"></span>
+                                <h4>Cierre (Ganado/Perdido)</h4>
+                            </div>
+                            <span class="column-count">0</span>
+                        </div>
+                        <div class="column-subvalue">$0.00</div>
+                        <div class="kanban-cards-container" id="stage-5-cards"></div>
+                    </div>
+
+                    <!-- 7. Post-Venta y Onboarding -->
+                    <div class="kanban-column" data-stage="6">
+                        <div class="column-header">
+                            <div class="column-title">
+                                <span class="dot bg-cyan"></span>
+                                <h4>Post-Venta</h4>
+                            </div>
+                            <span class="column-count">0</span>
+                        </div>
+                        <div class="column-subvalue">$0.00</div>
+                        <div class="kanban-cards-container" id="stage-6-cards"></div>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: NEGOCIOS ARCHIVADOS -->
+                <div id="archived-deals-section" class="archived-section hidden">
+                    <div class="archived-section-header">
+                        <div class="archived-section-title">
+                            <i data-lucide="archive"></i>
+                            <h3>Negocios Archivados <span id="archived-count" class="archived-count-badge">0</span></h3>
+                            <span class="archived-info-text">Siguen contando en Dashboard y reportes</span>
+                        </div>
+                        <div id="archived-stats" class="archived-stats"></div>
+                    </div>
+                    <div id="archived-deals-container" class="archived-grid"></div>
+                </div>
+            </section>
+
+            <!-- SECCIÓN: CARTERA DE CLIENTES -->
+            <section id="section-clientes" class="content-section">
+                <!-- Filtros y herramientas -->
+                <div class="clients-tools-bar glass">
+                    <div class="tools-left">
+                        <div class="search-input-wrapper">
+                            <i data-lucide="search"></i>
+                            <input type="text" id="client-search" placeholder="Buscar cliente por empresa, dueño o marcas...">
+                        </div>
+                        <select id="client-filter-zone">
+                            <option value="all">Todas las Zonas</option>
+                            <!-- Se llena dinámicamente -->
+                        </select>
+                        <select id="client-filter-industry">
+                            <option value="all">Todas las Industrias</option>
+                            <!-- Se llena dinámicamente -->
+                        </select>
+                    </div>
+                    <div class="tools-right" style="display: flex; gap: 8px;">
+                        <button class="btn btn-secondary btn-icon" id="btn-export-clients-csv" title="Exportar Clientes a CSV">
+                            <i data-lucide="download"></i> Exportar CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tabla de clientes -->
+                <div class="table-container glass">
+                    <table class="data-table" id="table-clients">
+                        <thead>
+                            <tr>
+                                <th data-sort="nombre">Nombre / Empresa ↕</th>
+                                <th data-sort="contacto">Contacto ↕</th>
+                                <th>Teléfono</th>
+                                <th data-sort="zona">Zona ↕</th>
+                                <th data-sort="ventas">Ventas Acumuladas ↕</th>
+                                <th>Pipeline</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clients-table-body">
+                            <!-- Inyectado dinámicamente con JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- SECCIÓN: CONFIGURACIÓN Y BASE DE DATOS -->
+            <section id="section-configuracion" class="content-section">
+                <div class="settings-grid">
+                    <!-- Sincronización con Supabase -->
+                    <div class="settings-card glass">
+                        <div class="settings-card-header" style="justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <i data-lucide="cloud-lightning"></i>
+                                <h3>Sincronización con Supabase</h3>
+                            </div>
+                            <span class="badge badge-warning" id="sync-status-badge">Sincronizando...</span>
+                        </div>
+                        <p class="text-muted" style="margin-bottom: 12px;">
+                            RosaCRM se conecta automáticamente a tu Supabase al cargar la página. No necesitas configurar nada — la sincronización es automática.
+                        </p>
+
+                        <div class="sync-info-box" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 14px;">
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                                <span style="font-size: 18px;">📊</span>
+                                <strong style="font-size: 13px; color: var(--text-primary);">Base de datos conectada automáticamente</strong>
+                            </div>
+                            <p style="font-size: 12px; color: var(--text-muted); margin: 0; font-family: monospace; word-break: break-all;">
+                                Proyecto Supabase: fcncenjqygoygyvjgtpc
+                            </p>
+                        </div>
+
+                        <div class="action-buttons-group">
+                            <button class="btn btn-primary w-100" id="btn-sync-pipeline-now">
+                                <i data-lucide="refresh-cw"></i> Sincronizar con Supabase
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Respaldar y Cargar Datos -->
+                    <div class="settings-card glass">
+                        <div class="settings-card-header">
+                            <i data-lucide="database-backup"></i>
+                            <h3>Respaldo y Seguridad de Datos</h3>
+                        </div>
+                        <p class="text-muted">Como toda la información se guarda localmente en este navegador para total privacidad, te recomendamos exportar periódicamente tu base de datos comercial.</p>
+                        
+                        <div class="action-buttons-group">
+                            <button class="btn btn-success w-100" id="btn-export-backup">
+                                <i data-lucide="download"></i> Descargar Respaldo Completo (JSON)
+                            </button>
+                            
+                            <div class="import-wrapper w-100">
+                                <label for="import-backup-file" class="btn btn-secondary w-100 text-center cursor-pointer">
+                                    <i data-lucide="upload"></i> Cargar Respaldo desde Archivo
+                                </label>
+                                <input type="file" id="import-backup-file" accept=".json" style="display: none;">
+                            </div>
+                        </div>
+
+                        <div class="divider" style="margin: 14px 0;"></div>
+
+                        <div class="danger-zone">
+                            <h4>Zona de Peligro</h4>
+                            <p class="text-muted small">Estas acciones borrarán o modificarán masivamente la base de datos.</p>
+                            <div class="danger-buttons mt-2">
+                                <button class="btn btn-secondary" id="btn-load-samples">
+                                    <i data-lucide="refresh-cw"></i> Cargar Datos de Demostración
+                                </button>
+                                <button class="btn btn-danger" id="btn-reset-db">
+                                    <i data-lucide="trash-2"></i> Borrar Toda la Base de Datos
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <!-- Input oculto de compatibilidad (no se usa en el nuevo sistema GViz) -->
+    <input type="hidden" id="google-script-url" value="">
+    <input type="hidden" id="wizard-script-url" value="">
+
+    <!-- MODAL: CLIENTE (NUEVO O EDITAR) -->
+    <div class="modal" id="modal-client">
+        <div class="modal-content glass animate-slide-up">
+            <div class="modal-header">
+                <h3 id="modal-client-title">Nuevo Cliente</h3>
+                <button class="btn-close" id="modal-client-close"><i data-lucide="x"></i></button>
+            </div>
+            <form id="form-client">
+                <input type="hidden" id="client-id">
+                <div class="form-scroll-area">
+                    <div class="form-row">
+                        <div class="form-group flex-2">
+                            <label for="client-name">Nombre de la Empresa / Negocio *</label>
+                            <input type="text" id="client-name" required placeholder="Ej. GRUPOROSA S.A.">
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="client-owner">Nombre del Dueño *</label>
+                            <input type="text" id="client-owner" required placeholder="Ej. Fernando Rosa">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="client-phone">Teléfono de Contacto</label>
+                            <input type="tel" id="client-phone" placeholder="Ej. +52 55 1234 5678">
+                        </div>
+                        <div class="form-group">
+                            <label for="client-email">Correo Electrónico</label>
+                            <input type="email" id="client-email" placeholder="Ej. contacto@gruporosa.com">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="client-zone">Zona / Ubicación</label>
+                            <input type="text" id="client-zone" placeholder="Ej. Zona Norte / Ciudad de México">
+                        </div>
+                        <div class="form-group">
+                            <label for="client-industry">Industria / Sector</label>
+                            <input type="text" id="client-industry" placeholder="Ej. Construcción, Logística">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="client-brands">Marcas que usa mayormente</label>
+                        <input type="text" id="client-brands" placeholder="Ej. Caterpillar, Volvo, Komatsu">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="client-desc">¿A qué se dedica la empresa/negocio?</label>
+                        <textarea id="client-desc" rows="2" placeholder="Ej. Distribuidor mayorista de materiales para construcción pesada."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="client-customers">¿Quiénes son sus clientes?</label>
+                        <textarea id="client-customers" rows="2" placeholder="Ej. Constructores civiles, contratistas del gobierno local."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="modal-client-cancel">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar Cliente</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: NEGOCIO / DEAL (NUEVO O EDITAR) -->
+    <div class="modal" id="modal-deal">
+        <div class="modal-content glass animate-slide-up">
+            <div class="modal-header">
+                <h3 id="modal-deal-title">Nuevo Negocio</h3>
+                <button class="btn-close" id="modal-deal-close"><i data-lucide="x"></i></button>
+            </div>
+            <form id="form-deal">
+                <input type="hidden" id="deal-id">
+                <div class="form-scroll-area">
+                    <div class="form-row">
+                        <div class="form-group flex-2">
+                            <label for="deal-client-id">Empresa / Negocio *</label>
+                            <div style="display: flex; gap: 8px;">
+                                <select id="deal-client-id" required style="flex: 1;">
+                                    <option value="">-- Seleccionar Cliente --</option>
+                                    <!-- Se llena dinámicamente -->
+                                </select>
+                                <button type="button" class="btn btn-secondary btn-icon-only" id="btn-create-client-on-fly" title="Crear Nuevo Cliente" style="padding: 8px; width: 40px; height: 38px; justify-content: center; align-items: center; display: flex; cursor: pointer;">
+                                    <i data-lucide="user-plus" style="width: 16px; height: 16px;"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="deal-client-contact">Nombre de Contacto / Dueño</label>
+                            <input type="text" id="deal-client-contact" readonly style="background: rgba(255,255,255,0.02); color: var(--accent-cyan); font-weight: 600;" placeholder="Selecciona empresa...">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group flex-2">
+                            <label for="deal-title">Concepto / Descripción del Negocio</label>
+                            <input type="text" id="deal-title" placeholder="Ej. Lote de Maquinaria Pesada (Opcional)">
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="deal-value">Valor del Negocio ($) *</label>
+                            <input type="number" id="deal-value" required min="0" value="5000" placeholder="Ej. 15000">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="deal-stage">Etapa del Pipeline</label>
+                            <select id="deal-stage">
+                                <option value="0">Prospección</option>
+                                <option value="1">Calificación</option>
+                                <option value="2">Descubrimiento y Diagnóstico</option>
+                                <option value="3">Propuesta y Presentación</option>
+                                <option value="4">Negociación</option>
+                                <option value="5">Cierre (Ganado/Perdido)</option>
+                                <option value="6">Post-Venta y Onboarding</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="deal-priority">Prioridad</label>
+                            <select id="deal-priority">
+                                <option value="low">Baja</option>
+                                <option value="medium" selected>Media</option>
+                                <option value="high">Alta</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="deal-close-date">Fecha Estimada Cierre</label>
+                            <input type="date" id="deal-close-date" required>
+                        </div>
+                    </div>
+
+                    <!-- Campos Condicionales de Cierre -->
+                    <div class="form-row hidden" id="cierre-status-row">
+                        <div class="form-group">
+                            <label for="deal-status">Resultado del Cierre</label>
+                            <select id="deal-status">
+                                <option value="ganado" selected>🎉 Ganado</option>
+                                <option value="perdido">❌ Perdido</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="deal-loss-reason">Motivo de Pérdida (Si aplica)</label>
+                            <select id="deal-loss-reason">
+                                <option value="">-- Seleccionar Motivo --</option>
+                                <option value="precio">Precio muy alto</option>
+                                <option value="competencia">Se fue con la competencia</option>
+                                <option value="tiempo">Tiempos de entrega largos</option>
+                                <option value="producto">Falta de características del producto</option>
+                                <option value="desinteres">El cliente perdió interés</option>
+                                <option value="otro">Otro motivo</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="deal-notes">Notas / Avances / Objeciones</label>
+                        <textarea id="deal-notes" rows="3" placeholder="Ej. El cliente solicita descuento del 5%. Programado seguimiento para el jueves."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer justify-between">
+                    <div class="flex gap-2">
+                        <button type="button" class="btn btn-danger" id="btn-delete-deal" style="display: none;">
+                            <i data-lucide="trash-2"></i> Eliminar
+                        </button>
+                        <button type="button" class="btn btn-archive" id="btn-archive-deal" style="display: none;">
+                            <i data-lucide="archive"></i> Archivar
+                        </button>
+                    </div>
+                    <div class="flex-end gap-2">
+                        <button type="button" class="btn btn-secondary" id="modal-deal-cancel">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Guardar Negocio</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL DETALLE CLIENTE COMPLETO -->
+    <div class="modal" id="modal-client-detail">
+        <div class="modal-content glass animate-slide-up">
+            <div class="modal-header">
+                <h3>Expediente de Cliente</h3>
+                <button class="btn-close" id="modal-client-detail-close"><i data-lucide="x"></i></button>
+            </div>
+            <div class="form-scroll-area">
+                <div class="detail-profile-header">
+                    <div class="detail-avatar">🏢</div>
+                    <div class="detail-main-info">
+                        <h2 id="det-company-name">Nombre Empresa</h2>
+                        <p class="tag-industry" id="det-industry">Industria</p>
+                    </div>
+                </div>
+
+                <div class="detail-grid mt-4">
+                    <div class="detail-section">
+                        <h4>Información del Negocio</h4>
+                        <div class="detail-field">
+                            <span class="field-label"><i data-lucide="user"></i> Dueño:</span>
+                            <span class="field-value" id="det-owner">Juan Perez</span>
+                        </div>
+                        <div class="detail-field">
+                            <span class="field-label"><i data-lucide="map-pin"></i> Zona / Ubicación:</span>
+                            <span class="field-value" id="det-zone">Zona Centro</span>
+                        </div>
+                        <div class="detail-field">
+                            <span class="field-label"><i data-lucide="tag"></i> Marcas Clave:</span>
+                            <span class="field-value" id="det-brands">Marcas</span>
+                        </div>
+                    </div>
+
+                    <div class="detail-section">
+                        <h4>Contacto Directo</h4>
+                        <div class="detail-field">
+                            <span class="field-label"><i data-lucide="phone"></i> Teléfono:</span>
+                            <span class="field-value"><a href="" id="det-phone">+52...</a></span>
+                        </div>
+                        <div class="detail-field">
+                            <span class="field-label"><i data-lucide="mail"></i> Correo:</span>
+                            <span class="field-value"><a href="" id="det-email">correo@...</a></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-section mt-4">
+                    <h4>Descripción Comercial</h4>
+                    <div class="detail-text-block">
+                        <strong>¿A qué se dedica?</strong>
+                        <p id="det-desc">Descripción de la empresa...</p>
+                    </div>
+                    <div class="detail-text-block mt-2">
+                        <strong>¿Quiénes son sus clientes?</strong>
+                        <p id="det-customers">Descripción de sus clientes...</p>
+                    </div>
+                </div>
+
+                <div class="detail-section mt-4">
+                    <h4>Historial Comercial en el CRM</h4>
+                    <div class="detail-financials">
+                        <div class="financial-card">
+                            <span class="label">Total Comprado (Ventas)</span>
+                            <span class="value success" id="det-total-bought">$0.00</span>
+                        </div>
+                        <div class="financial-card">
+                            <span class="label">Negocios en Pipeline</span>
+                            <span class="value warning" id="det-active-deals">0</span>
+                        </div>
+                    </div>
+
+                    <div class="deal-history-list mt-3">
+                        <h5>Listado de Negocios</h5>
+                        <div class="history-container" id="det-deals-list">
+                            <!-- Inyectado dinámicamente con JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-edit-client-from-detail">Editar Expediente</button>
+                <button class="btn btn-primary" id="modal-client-detail-ok">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: ONBOARDING (primer uso) -->
+    <div class="modal" id="modal-onboarding">
+        <div class="modal-content glass animate-slide-up onboarding-modal">
+            <div class="onboarding-hero">
+                <div class="onboarding-logo">🌹</div>
+                <h2>Bienvenido a <strong>RosaCRM</strong></h2>
+                <p class="text-muted">Tu sistema de ventas y cartera de clientes.<br>Conectado a Supabase · Todo en un solo lugar.</p>
+            </div>
+
+            <div class="onboarding-features">
+                <div class="onboarding-feature">
+                    <span class="ob-icon" style="background:rgba(99,102,241,.15);color:#a5b4fc">📊</span>
+                    <div>
+                        <strong>Reporte Directivo</strong>
+                        <p>KPIs en tiempo real: forecast, conversión, ticket promedio y CAC.</p>
+                    </div>
+                </div>
+                <div class="onboarding-feature">
+                    <span class="ob-icon" style="background:rgba(245,158,11,.12);color:#fcd34d">🎯</span>
+                    <div>
+                        <strong>Pipeline Drag & Drop</strong>
+                        <p>Arrastra tus negocios entre etapas. Al llegar a Cierre, se genera un evento en Google Calendar.</p>
+                    </div>
+                </div>
+                <div class="onboarding-feature">
+                    <span class="ob-icon" style="background:rgba(16,185,129,.12);color:#6ee7b7">👥</span>
+                    <div>
+                        <strong>Cartera de Clientes</strong>
+                        <p>Sincronizada con tu Supabase. Edita expedientes sin salir del CRM.</p>
+                    </div>
+                </div>
+                <div class="onboarding-feature">
+                    <span class="ob-icon" style="background:rgba(6,182,212,.12);color:#67e8f9">🔧</span>
+                    <div>
+                        <strong>Base de Datos</strong>
+                        <p>Mapea las columnas de tu hoja, respalda y restaura tu información.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="onboarding-tip glass" style="margin-top:16px;padding:12px 16px;font-size:12px;">
+                💡 <strong>Primer paso:</strong> Ve a <em>Base de Datos → Mapeo de Columnas</em> y verifica que tus columnas de Supabase estén bien asignadas.
+            </div>
+
+            <div class="modal-footer" style="justify-content:center;gap:12px;margin-top:20px;">
+                <button class="btn btn-secondary" id="btn-onboarding-skip">Saltar</button>
+                <button class="btn btn-primary" id="btn-onboarding-start">
+                    <i data-lucide="rocket"></i> ¡Empezar!
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: EDITAR EXPEDIENTE DE CLIENTE -->
+    <div class="modal" id="modal-edit-client">
+        <div class="modal-content glass animate-slide-up">
+            <div class="modal-header">
+                <h3 id="modal-edit-client-title">Editar Expediente</h3>
+                <button class="btn-close" id="modal-edit-client-close"><i data-lucide="x"></i></button>
+            </div>
+            <form id="form-edit-client">
+                <input type="hidden" id="edit-client-id">
+                <div class="form-scroll-area">
+
+                    <!-- Nombre y Contacto -->
+                    <div class="form-row">
+                        <div class="form-group flex-2">
+                            <label for="edit-client-nombre">Nombre de la Empresa / Negocio</label>
+                            <input type="text" id="edit-client-nombre" placeholder="Ej. GRUPOROSA S.A.">
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="edit-client-contacto">Nombre del Contacto / Dueño</label>
+                            <input type="text" id="edit-client-contacto" placeholder="Ej. Fernando Rosa">
+                        </div>
+                    </div>
+
+                    <!-- Teléfonos -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="edit-client-tel1">Teléfono Principal</label>
+                            <input type="tel" id="edit-client-tel1" placeholder="Ej. +52 55 1234 5678">
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-client-tel2">Teléfono Secundario</label>
+                            <input type="tel" id="edit-client-tel2" placeholder="Ej. +52 33 9876 5432">
+                        </div>
+                    </div>
+
+                    <!-- Email e Industria -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="edit-client-email">Correo Electrónico</label>
+                            <input type="email" id="edit-client-email" placeholder="Ej. contacto@empresa.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-client-industria">Industria / Sector</label>
+                            <input type="text" id="edit-client-industria" list="list-industrias" placeholder="Ej. Construcción, Logística…">
+                            <datalist id="list-industrias">
+                                <option value="Construcción">
+                                <option value="Logística y Transporte">
+                                <option value="Manufactura">
+                                <option value="Minería">
+                                <option value="Energía y Petróleo">
+                                <option value="Agroindustria">
+                                <option value="Comercio al por Mayor">
+                                <option value="Comercio al por Menor">
+                                <option value="Servicios Industriales">
+                                <option value="Gobierno / Municipal">
+                                <option value="Educación">
+                                <option value="Salud">
+                                <option value="Tecnología">
+                                <option value="Otro">
+                            </datalist>
+                        </div>
+                    </div>
+
+                    <!-- Zona -->
+                    <div class="form-row">
+                        <div class="form-group flex-2">
+                            <label for="edit-client-zona">Zona / Región de Operación</label>
+                            <input type="text" id="edit-client-zona" list="list-zonas-edit" placeholder="Ej. Zona Norte, CDMX, Guadalajara…">
+                            <datalist id="list-zonas-edit">
+                                <!-- Se llena dinámicamente con las zonas existentes -->
+                            </datalist>
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="edit-client-ventas">Ventas Acumuladas ($)</label>
+                            <input type="number" id="edit-client-ventas" min="0" placeholder="0" readonly
+                                   style="opacity:.6;cursor:not-allowed;" title="Valor calculado desde Supabase">
+                        </div>
+                    </div>
+
+                    <!-- Notas internas -->
+                    <div class="form-group">
+                        <label for="edit-client-notas">Notas Internas del Expediente</label>
+                        <textarea id="edit-client-notas" rows="3"
+                            placeholder="Observaciones, historial de contacto, preferencias del cliente…"></textarea>
+                    </div>
+
+                    <!-- Info hint -->
+                    <p class="text-muted" style="font-size:11px;margin-top:6px;">
+                        <i data-lucide="info" style="width:12px;height:12px;vertical-align:middle;"></i>
+                        Los cambios se guardan localmente y complementan los datos de Supabase.
+                        El campo "Ventas Acumuladas" solo se actualiza desde la hoja de cálculo.
+                    </p>
+                </div>
+
+                <div class="modal-footer justify-between">
+                    <div></div>
+                    <div class="flex-end gap-2">
+                        <button type="button" class="btn btn-secondary" id="modal-edit-client-cancel">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i data-lucide="save"></i> Guardar Cambios
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: BUSCADOR RÁPIDO DE CLIENTES -->
+    <div class="modal" id="modal-quick-client-search">
+        <div class="modal-content glass animate-slide-up" style="max-width: 540px; border-top: 3px solid var(--accent-primary);">
+            <div class="modal-header">
+                <h3>Buscar Cliente para Agregar al Pipeline</h3>
+                <button class="btn-close" id="modal-quick-client-close"><i data-lucide="x"></i></button>
+            </div>
+            <div style="padding: 12px 0;">
+                <div class="search-input-wrapper" style="margin-bottom: 16px; position: relative;">
+                    <i data-lucide="search" style="position: absolute; left: 14px; top: 14px; opacity: 0.6;"></i>
+                    <input type="text" id="quick-client-search-input" placeholder="Buscar por zona, teléfono, dueño o empresa..." style="width: 100%; padding: 12px 12px 12px 42px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.3); color: #fff; font-size: 13px;">
+                </div>
+                <div id="quick-client-search-results" style="display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; padding-right: 4px;">
+                    <!-- Inyectado dinámicamente -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BOTE DE BASURA PARA EL DRAG & DROP DEL KANBAN -->
+    <div id="trash-dropzone" class="trash-dropzone hidden" style="position: fixed; bottom: 84px; right: 24px; width: 68px; height: 68px; border-radius: 50%; background: rgba(239, 68, 68, 0.12); border: 2px dashed #ef4444; display: flex; align-items: center; justify-content: center; z-index: 3000; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); color: #ef4444; box-shadow: 0 0 15px rgba(239,68,68,0.3); cursor: pointer;">
+        <i data-lucide="trash-2" style="width: 24px; height: 24px;"></i>
+    </div>
+
+    <!-- CAJA DE ARCHIVO PARA EL DRAG & DROP DEL KANBAN -->
+    <div id="archive-dropzone" style="display:none; position:fixed; bottom:84px; left:24px; width:80px; height:80px; border-radius:50%; background:rgba(161,100,35,0.13); border:2px dashed #c47f28; flex-direction:column; align-items:center; justify-content:center; gap:3px; z-index:3000; cursor:pointer; transition:all 0.3s cubic-bezier(0.175,0.885,0.32,1.275); box-shadow:0 0 15px rgba(196,127,40,0.35); animation:pulse-amber 2s infinite;">
+        <span style="font-size:26px; line-height:1; filter:drop-shadow(0 0 4px rgba(196,127,40,0.6));">📦</span>
+        <span style="font-size:9px; font-weight:700; color:#c47f28; letter-spacing:0.05em; text-transform:uppercase;">Archivar</span>
+    </div>
+
+    <!-- NOTIFICACIONES TOAST -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="app.js"></script>
+
+    <!-- ══════════════════════════════════════════════════════════
+         SPLASH SCREEN CONTROLLER
+         Cierra la intro cuando el video termina (o tras 7 seg máx)
+         ══════════════════════════════════════════════════════════ -->
+    <script>
+      (function () {
+        const splash  = document.getElementById('splash-screen');
+        const video   = document.getElementById('splash-video');
+        const fill    = document.getElementById('splash-progress-fill');
+        const MAX_MS  = 7000; // seguridad: cierra después de 7 seg si algo falla
+
+        function hideSplash() {
+          splash.classList.add('fade-out');
+          // Elimina el nodo del DOM después de que termine la transición
+          setTimeout(() => splash.remove(), 900);
+        }
+
+        function syncProgressDuration(durationSec) {
+          const dur = Math.min(Math.max(durationSec, 1), 12); // clamp 1-12 seg
+          fill.style.setProperty('--splash-duration', dur + 's');
+          fill.style.animationDuration = dur + 's';
+        }
+
+        // Cuando el video carga metadatos, ajusta la barra de progreso
+        video.addEventListener('loadedmetadata', () => {
+          if (video.duration && isFinite(video.duration)) {
+            syncProgressDuration(video.duration);
+          }
+        });
+
+        // Al terminar el video → cierra el splash con transición suave
+        video.addEventListener('ended', hideSplash);
+
+        // Fallback: si el video no arranca o demora demasiado, cierra igual
+        const fallback = setTimeout(hideSplash, MAX_MS);
+
+        // Si el splash se elimina antes del fallback, cancelamos el timeout
+        video.addEventListener('ended', () => clearTimeout(fallback));
+
+        // Si el video no puede reproducirse (sin códec / error), cierra rápido
+        video.addEventListener('error', () => {
+          clearTimeout(fallback);
+          setTimeout(hideSplash, 500);
+        });
+      })();
+    </script>
+</body>
+</html>
