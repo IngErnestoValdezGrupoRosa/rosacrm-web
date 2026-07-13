@@ -47,7 +47,6 @@
         <div id="splash-inner">
             <video id="splash-video"
                    src="logo_animated.mp4"
-                   autoplay
                    muted
                    playsinline
                    preload="auto">
@@ -1125,51 +1124,6 @@
 
     <script src="app.js"></script>
 
-    <!-- ══════════════════════════════════════════════════════════
-         SPLASH SCREEN CONTROLLER
-         Cierra la intro cuando el video termina (o tras 7 seg máx)
-         ══════════════════════════════════════════════════════════ -->
-    <script>
-      (function () {
-        const splash  = document.getElementById('splash-screen');
-        const video   = document.getElementById('splash-video');
-        const fill    = document.getElementById('splash-progress-fill');
-        const MAX_MS  = 7000; // seguridad: cierra después de 7 seg si algo falla
-
-        function hideSplash() {
-          splash.classList.add('fade-out');
-          // Elimina el nodo del DOM después de que termine la transición
-          setTimeout(() => splash.remove(), 900);
-        }
-
-        function syncProgressDuration(durationSec) {
-          const dur = Math.min(Math.max(durationSec, 1), 12); // clamp 1-12 seg
-          fill.style.setProperty('--splash-duration', dur + 's');
-          fill.style.animationDuration = dur + 's';
-        }
-
-        // Cuando el video carga metadatos, ajusta la barra de progreso
-        video.addEventListener('loadedmetadata', () => {
-          if (video.duration && isFinite(video.duration)) {
-            syncProgressDuration(video.duration);
-          }
-        });
-
-        // Al terminar el video → cierra el splash con transición suave
-        video.addEventListener('ended', hideSplash);
-
-        // Fallback: si el video no arranca o demora demasiado, cierra igual
-        const fallback = setTimeout(hideSplash, MAX_MS);
-
-        // Si el splash se elimina antes del fallback, cancelamos el timeout
-        video.addEventListener('ended', () => clearTimeout(fallback));
-
-        // Si el video no puede reproducirse (sin códec / error), cierra rápido
-        video.addEventListener('error', () => {
-          clearTimeout(fallback);
-          setTimeout(hideSplash, 500);
-        });
-      })();
-    </script>
+    
 </body>
 </html>
