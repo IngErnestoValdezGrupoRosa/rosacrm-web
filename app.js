@@ -2281,3 +2281,194 @@ window.applyTeamModeFilter = function() {
   }
 };
 
+
+
+/* ==========================================================================
+   RUTAS Y MAPAS (LEAFLET INTEGRATION)
+   ========================================================================== */
+let rutasMap = null;
+let rutasMarkers = [];
+let isGeocoding = false;
+let geocodeQueue = [];
+
+// Coordenadas centro (Chihuahua)
+const CHIH_CENTER = { lat: 28.6330, lng: -106.0691 };
+
+window.initRutasMap = function() {
+    if (!rutasMap) {
+        rutasMap = L.map('rutas-map-container', {
+            zoomControl: false // Lo agregaremos custom
+        }).setView([CHIH_CENTER.lat, CHIH_CENTER.lng], 12);
+        
+        // Agregar capa oscura tipo CartoDB Dark Matter o similar
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(rutasMap);
+
+        L.control.zoom({
+            position: 'bottomleft'
+        }).addTo(rutasMap);
+    } else {
+        rutasMap.invalidateSize();
+    }
+    
+    renderRutas();
+};
+
+function renderRutas() {
+    if (!rutasMap) return;
+    
+    const filterZona = document.getElementById('rutas-filter-zona').value;
+    const filterInd = document.getElementById('rutas-filter-industria').value;
+    
+    // Poblar filtro industrias si esta vacio
+    const selectInd = document.getElementById('rutas-filter-industria');
+    if (selectInd.options.length <= 1) {
+        const indus = [...new Set(STATE.clients.map(c => c.sector).filter(Boolean))].sort();
+        indus.forEach(i => {
+            let opt = document.createElement('option');
+            opt.value = i;
+            opt.textContent = i;
+            selectInd.appendChild(opt);
+        });
+    }
+
+    // Limpiar marcadores
+    rutasMarkers.forEach(m => rutasMap.removeLayer(m));
+    rutasMarkers = [];
+    
+    const listContainer = document.getElementById('rutas-client-list');
+    listContainer.innerHTML = '';
+    
+    // Clasificar y filtrar clientes
+    let toShow = [];
+    let toGeocode = [];
+    
+    STATE.clients.forEach(c => {
+        let extras = STATE.clientExtras[c.id] || {};
+        
+        // Filtro Industria
+        if (filterInd !== 'all' && c.sector !== filterInd) return;
+        
+        if (extras.lat && extras.lng) {
+            // Clasificar Zona
+            let zonaGeo = '';
+            if (extras.lat > CHIH_CENTER.lat) zonaGeo = 'Norte';
+            else zonaGeo = 'Sur';
+            // Para simplificar, priorizamos Norte/Sur, pero si esta muy al este/oeste lo cambiamos
+            if (Math.abs(extras.lng - CHIH_CENTER.lng) > Math.abs(extras.lat - CHIH_CENTER.lat)) {
+                if (extras.lng > CHIH_CENTER.lng) zonaGeo = 'Este';
+                else zonaGeo = 'Oeste';
+            }
+            c._zonaGeo = zonaGeo;
+            
+            if (filterZona === 'all' || filterZona === zonaGeo) {
+                toShow.push(c);
+            }
+        } else {
+            // No tiene coordenadas, necesita geocodificarse (si tiene zona/direccion)
+            if (c.zona && c.zona.trim() !== '') {
+                toGeocode.push(c);
+            }
+        }
+    });
+    
+    document.getElementById('rutas-list-count').textContent = toShow.length;
+    
+    // Render Lista
+    toShow.forEach(c => {
+        let extras = STATE.clientExtras[c.id] || {};
+        
+        // Marker Map
+        let iconHtml = `<div style="background:var(--accent-primary); width:14px; height:14px; border-radius:50%; border:2px solid white; box-shadow:0 0 10px rgba(99,102,241,0.8);"></div>`;
+        let divIcon = L.divIcon({ html: iconHtml, className: '', iconSize: [14, 14], iconAnchor: [7, 7] });
+        let marker = L.marker([extras.lat, extras.lng], { icon: divIcon }).addTo(rutasMap);
+        
+        let popupStr = `
+            <h4>${c.nombre}</h4>
+            <p><strong>Industria:</strong> ${c.sector || 'N/A'}</p>
+            <p><strong>Dirección:</strong> ${c.zona || 'N/A'}</p>
+            <p><strong>Zona Asignada:</strong> ${c._zonaGeo}</p>
+            <a href="#" onclick="navigate('clientes'); document.getElementById('client-search').value='${c.nombre.substring(0, 10)}'; document.getElementById('client-search').dispatchEvent(new Event('input')); return false;" style="color:var(--accent-primary); display:inline-block; margin-top:8px;">Ver en Directorio</a>
+        `;
+        marker.bindPopup(popupStr);
+        rutasMarkers.push(marker);
+        
+        // Elemento lista
+        let el = document.createElement('div');
+        el.className = 'ruta-client-card';
+        el.innerHTML = `
+            <div class="ruta-client-name">${c.nombre}</div>
+            <div class="ruta-client-zone">
+                <i data-lucide="map-pin" style="width:12px; height:12px;"></i> ${c._zonaGeo} • ${c.sector || 'Sin sector'}
+            </div>
+        `;
+        el.addEventListener('click', () => {
+            rutasMap.flyTo([extras.lat, extras.lng], 16, { animate: true, duration: 1 });
+            marker.openPopup();
+        });
+        listContainer.appendChild(el);
+    });
+    
+    if (window.lucide) window.lucide.createIcons();
+    
+    // Auto-geocodificar si hay pendientes y usuario lo solicita
+    document.getElementById('btn-rutas-refresh').onclick = () => {
+        if (!isGeocoding && toGeocode.length > 0) {
+            geocodeQueue = [...toGeocode];
+            startGeocoding();
+        } else if (toGeocode.length === 0) {
+            toast('Todos los clientes con dirección ya están geolocalizados', 'success');
+        }
+    };
+}
+
+async function startGeocoding() {
+    if (geocodeQueue.length === 0) {
+        isGeocoding = false;
+        document.getElementById('rutas-geo-progress').classList.add('hidden');
+        renderRutas();
+        toast('Geolocalización completada', 'success');
+        return;
+    }
+    
+    isGeocoding = true;
+    document.getElementById('rutas-geo-progress').classList.remove('hidden');
+    
+    let c = geocodeQueue.shift();
+    
+    const total = document.getElementById('rutas-list-count').textContent; // approx total
+    document.getElementById('rutas-geo-text').textContent = `Faltan: ${geocodeQueue.length}`;
+    
+    // Fetch Nominatim
+    try {
+        let query = c.zona + ', Chihuahua, Mexico';
+        let res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+        let data = await res.json();
+        
+        if (data && data.length > 0) {
+            let lat = parseFloat(data[0].lat);
+            let lng = parseFloat(data[0].lon);
+            
+            // Save to extras
+            if (!STATE.clientExtras[c.id]) STATE.clientExtras[c.id] = {};
+            STATE.clientExtras[c.id].lat = lat;
+            STATE.clientExtras[c.id].lng = lng;
+            saveExtras();
+        }
+    } catch(e) {
+        console.warn('Error geocoding', c.nombre, e);
+    }
+    
+    // Throttle 1 second per Nominatim terms of use
+    setTimeout(startGeocoding, 1500);
+}
+
+// Bind filters
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('rutas-filter-zona')?.addEventListener('change', renderRutas);
+    document.getElementById('rutas-filter-industria')?.addEventListener('change', renderRutas);
+});
+
