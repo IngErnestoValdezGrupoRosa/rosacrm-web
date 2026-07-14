@@ -548,6 +548,7 @@ function navigate(section) {
     pipeline:      ['Pipeline de Ventas',   'Arrastra y gestiona tus negocios por etapa'],
     clientes:      ['Cartera de Clientes', `${STATE.clients.length} clientes · sincronizado con Supabase`],
     configuracion: ['Base de Datos',        'Configuración y Sincronización'],
+    rutas:         ['Rutas y Mapas',        'Visualiza la ubicación de tus clientes y planifica rutas'],
   };
   const [t, s] = titles[section] || ['RosaCRM', ''];
   setText('page-title', t);
@@ -561,6 +562,8 @@ function navigate(section) {
     renderClients();
   } else if (section === 'configuracion') {
     syncConfigUI();
+  } else if (section === 'rutas') {
+    setTimeout(() => { if (window.initRutasMap) window.initRutasMap(); }, 200);
   }
 
   safeIcons();
@@ -2290,6 +2293,7 @@ let rutasMap = null;
 let rutasMarkers = [];
 let isGeocoding = false;
 let geocodeQueue = [];
+let _geocodeTotal = 0;
 
 // Coordenadas centro (Chihuahua)
 const CHIH_CENTER = { lat: 28.6330, lng: -106.0691 };
@@ -2348,6 +2352,7 @@ function renderRutas() {
     
     STATE.clients.forEach(c => {
         let extras = STATE.clientExtras[c.id] || {};
+        let direccion = extras.zona || c.zona || '';
         
         // Filtro Industria
         if (filterInd !== 'all' && c.sector !== filterInd) return;
@@ -2368,10 +2373,10 @@ function renderRutas() {
                 toShow.push(c);
             }
         } else {
-            // No tiene coordenadas, necesita geocodificarse (si tiene zona/direccion)
-            if (c.zona && c.zona.trim() !== '') {
-                toGeocode.push(c);
-            }
+            // No tiene coordenadas — todos los clientes van a geocodificarse
+            // Usamos direccion si existe, si no usamos el nombre como query
+            c._geoQuery = direccion.trim() || c.nombre;
+            toGeocode.push(c);
         }
     });
     
@@ -2418,9 +2423,15 @@ function renderRutas() {
     document.getElementById('btn-rutas-refresh').onclick = () => {
         if (!isGeocoding && toGeocode.length > 0) {
             geocodeQueue = [...toGeocode];
+            _geocodeTotal = geocodeQueue.length;
+            toast(`Iniciando geolocalización de ${_geocodeTotal} clientes...`, 'info');
             startGeocoding();
-        } else if (toGeocode.length === 0) {
-            toast('Todos los clientes con dirección ya están geolocalizados', 'success');
+        } else if (toGeocode.length === 0 && toShow.length > 0) {
+            toast('Todos los clientes ya están geolocalizados ✓', 'success');
+        } else if (toGeocode.length === 0 && toShow.length === 0) {
+            toast('No se encontraron clientes para geolocalizar', 'warning');
+        } else if (isGeocoding) {
+            toast('Ya se está geolocalizando, espera a que termine...', 'warning');
         }
     };
 }
@@ -2430,7 +2441,7 @@ async function startGeocoding() {
         isGeocoding = false;
         document.getElementById('rutas-geo-progress').classList.add('hidden');
         renderRutas();
-        toast('Geolocalización completada', 'success');
+        toast('Geolocalización completada. ' + Object.keys(STATE.clientExtras).filter(k => STATE.clientExtras[k].lat).length + ' clientes ubicados.', 'success');
         return;
     }
     
@@ -2439,12 +2450,15 @@ async function startGeocoding() {
     
     let c = geocodeQueue.shift();
     
-    const total = document.getElementById('rutas-list-count').textContent; // approx total
-    document.getElementById('rutas-geo-text').textContent = `Faltan: ${geocodeQueue.length}`;
+    const totalInitial = geocodeQueue.length + 1; // remaining + current
+    const processed = _geocodeTotal - geocodeQueue.length;
+    const pct = Math.round((processed / _geocodeTotal) * 100);
+    document.getElementById('rutas-geo-bar').style.width = pct + '%';
+    document.getElementById('rutas-geo-text').textContent = `Procesando: ${processed}/${_geocodeTotal} — ${c.nombre.substring(0, 25)}`;
     
     // Fetch Nominatim
     try {
-        let query = c.zona + ', Chihuahua, Mexico';
+        let query = (c._geoQuery || c.nombre) + ', Chihuahua, Mexico';
         let res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
         let data = await res.json();
         
@@ -2456,7 +2470,7 @@ async function startGeocoding() {
             if (!STATE.clientExtras[c.id]) STATE.clientExtras[c.id] = {};
             STATE.clientExtras[c.id].lat = lat;
             STATE.clientExtras[c.id].lng = lng;
-            saveExtras();
+            saveLocal();
         }
     } catch(e) {
         console.warn('Error geocoding', c.nombre, e);
