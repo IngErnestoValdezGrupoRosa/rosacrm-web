@@ -554,6 +554,11 @@ function navigate(section) {
   setText('page-title', t);
   setText('page-subtitle', s);
 
+  // Show/hide header buttons per section
+  document.querySelectorAll('.header-section-btn').forEach(btn => {
+    btn.style.display = (btn.dataset.section === section) ? '' : 'none';
+  });
+
   if (section === 'dashboard') {
     renderDashboard();
   } else if (section === 'pipeline') {
@@ -1071,7 +1076,9 @@ function renderClients() {
       || (c.zona      || '').toLowerCase().includes(search)
       || (c.sector    || '').toLowerCase().includes(search)
       || (c.telefono1 || '').includes(search);
-    const mz = zone === 'all' || c.zona === zone;
+    // Zone filter now uses geolocation (N/S/E/O)
+    const clientZone = getClientGeoZone(c.id);
+    const mz = zone === 'all' || clientZone === zone;
     const mi = industry === 'all' || (c.sector || '').toLowerCase() === industry.toLowerCase();
     return ms && mz && mi;
   });
@@ -1189,14 +1196,8 @@ window.goPage = p => {
 };
 
 function populateZoneFilter() {
-  const selZone = document.getElementById('client-filter-zone');
-  if (selZone) {
-    const zones   = [...new Set(STATE.clients.map(c => c.zona).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
-    const current = selZone.value;
-    selZone.innerHTML = `<option value="all">Todas las Zonas</option>` + zones.map(z => `<option value="${esc(z)}">${esc(z)}</option>`).join('');
-    if (zones.includes(current)) selZone.value = current;
-  }
-
+  // Zone filter is now static (Norte/Sur/Este/Oeste) — no dynamic population needed
+  // Only populate Industry filter
   const selInd = document.getElementById('client-filter-industry');
   if (selInd) {
     const industries = [...new Set(STATE.clients.map(c => c.sector).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
@@ -1204,6 +1205,18 @@ function populateZoneFilter() {
     selInd.innerHTML = `<option value="all">Todas las Industrias</option>` + industries.map(i => `<option value="${esc(i.toUpperCase())}">${esc(i.toUpperCase())}</option>`).join('');
     if (industries.includes(current)) selInd.value = current;
   }
+}
+
+// Helper: classify a client into N/S/E/O based on geolocation
+function getClientGeoZone(clientId) {
+  const extras = STATE.clientExtras[clientId] || {};
+  if (!extras.lat || !extras.lng) return null;
+  const CHIH = { lat: 28.6330, lng: -106.0691 };
+  let zone = extras.lat > CHIH.lat ? 'Norte' : 'Sur';
+  if (Math.abs(extras.lng - CHIH.lng) > Math.abs(extras.lat - CHIH.lat)) {
+    zone = extras.lng > CHIH.lng ? 'Este' : 'Oeste';
+  }
+  return zone;
 }
 
 // ─────────────────────────────────────────────────────────────────
