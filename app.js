@@ -155,16 +155,16 @@ function mergedClient(c) {
   const ex = STATE.clientExtras[c.id] || {};
   return {
     ...c,
-    nombre:      ex.nombre      || c.nombre,
-    contacto:    ex.contacto    || c.contacto,
-    telefono1:   ex.tel1        || c.telefono1,
-    telefono2:   ex.tel2        || c.telefono2,
-    email:       ex.email       || '',
-    industria:   ex.industria   || '',
-    zona:        ex.zona        || c.zona,
-    descripcion: ex.descripcion || '',
-    clientes_de: ex.clientes_de || '',
-    notas:       ex.notas       || '',
+    nombre:      c.nombre      || ex.nombre,
+    contacto:    c.contacto    || ex.contacto,
+    telefono1:   c.telefono1   || ex.tel1,
+    telefono2:   c.telefono2   || ex.tel2,
+    email:       c.email       || ex.email       || '',
+    industria:   c.sector      || c.industria    || ex.industria   || '',
+    zona:        c.zona        || ex.zona        || '',
+    descripcion: c.descripcion || ex.descripcion || '',
+    clientes_de: c.clientes_de || ex.clientes_de || '',
+    notas:       c.notas       || ex.notas       || '',
   };
 }
 
@@ -472,7 +472,7 @@ async function syncDirectorio() {
     if (dealErr) {
       console.warn('[RosaCRM] Error cargando deals:', dealErr.message);
     } else if (dealRows && dealRows.length > 0) {
-      STATE.allDeals = dealRows.map(d => ({
+      const incomingDeals = dealRows.map(d => ({
         id:         d.id || generateUUID(),
         clientId:   d.cliente_id || '',
         clientName: findClient(d.cliente_id)?.nombre || '',
@@ -485,13 +485,17 @@ async function syncDirectorio() {
         notes:      d.notes || '',
         lossReason: d.loss_reason || '',
         createdAt:  d.created_at || new Date().toISOString(),
-        closedAt:   null,
+        closedAt:   d.closed_at || null,
         archived:   d.archived || false,
         user_id:    d.user_id || '',
         user_name:  d.user_name || ''
       }));
+      // Mantener deals locales que aún no existen en Supabase (creados offline/errores de sync)
+      const localOnly = STATE.allDeals.filter(ld => !incomingDeals.find(id => id.id === ld.id));
+      STATE.allDeals = [...incomingDeals, ...localOnly];
+      
       if(window.applyTeamModeFilter) applyTeamModeFilter(); else STATE.deals = STATE.allDeals;
-      console.log('[RosaCRM] 📦 Deals cargados desde Supabase:', dealRows.length);
+      console.log('[RosaCRM] 📦 Deals cargados desde Supabase (merged con locales):', STATE.allDeals.length);
     }
 
     STATE.lastSync = new Date().toISOString();
@@ -1045,7 +1049,7 @@ function handleCardDrop(dealId, newStage) {
   deal.stage = newStage;
 
   // Si llega a Cierre, marcar como activo (el usuario decidirá ganado/perdido)
-  if (newStage === 5 && deal.status === 'active') {
+  if (newStage === 5 && (deal.status === 'active' || deal.status === 'activo')) {
     deal.status = 'ganado';   // default optimista — editable al abrir la tarjeta
   }
   // Si sale de Cierre, resetear estado
@@ -1060,7 +1064,8 @@ function handleCardDrop(dealId, newStage) {
 
   saveLocal();
   syncDealsToSupabase();   // Persistir en Supabase
-  renderAll();
+  renderPipeline();
+  renderDashboard();
 
   // Obj 3: Mostrar opción de calendario en toast
   autoCalendarToast(deal, prevStage, newStage);
@@ -1561,11 +1566,19 @@ function bindModalForms() {
       titleStr = 'Negocio - ' + clientName;
     }
 
+    let rawVal = $v('deal-value').trim();
+    let val = parseFloat(rawVal);
+    if (rawVal && isNaN(val)) {
+      toast('Por favor ingresa un valor numérico válido para el negocio.', 'error');
+      return;
+    }
+    val = val || 0;
+
     const existingDeal = id ? STATE.deals.find(d => d.id === id) : null;
     const deal = {
       id:         id || generateUUID(),
       title:      titleStr,
-      value:      parseFloat($v('deal-value')) || 0,
+      value:      val,
       clientId,
       clientName: clientName,
       stage,
@@ -1725,10 +1738,27 @@ function bindModalForms() {
     document.getElementById(btnId)?.addEventListener('click', () => closeModal(modalId));
   });
 
-  // Click fuera del modal
+  // Click fuera del modal (Bloqueado para formularios críticos para evitar pérdida de datos accidental)
   document.querySelectorAll('.modal').forEach(m =>
-    m.addEventListener('click', e => { if (e.target === m) closeModal(m.id); })
+    m.addEventListener('click', e => { 
+      if (e.target === m && m.id !== 'modal-edit-client' && m.id !== 'modal-deal') {
+        closeModal(m.id); 
+      }
+    })
   );
+}
+
+// Utility function for debouncing inputs
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1736,11 +1766,11 @@ function bindModalForms() {
 // ─────────────────────────────────────────────────────────────────
 function bindFilters() {
   // Cartera
-  document.getElementById('client-search')?.addEventListener('input', e => {
+  document.getElementById('client-search')?.addEventListener('input', debounce(e => {
     STATE.ui.clientSearch = e.target.value;
     STATE.ui.clientPage   = 1;
     renderClients();
-  });
+  }, 300));
   document.getElementById('client-filter-zone')?.addEventListener('change', e => {
     STATE.ui.clientZone = e.target.value;
     STATE.ui.clientPage = 1;
@@ -1764,10 +1794,10 @@ function bindFilters() {
   });
 
   // Pipeline
-  document.getElementById('pipeline-filter-search')?.addEventListener('input', e => {
+  document.getElementById('pipeline-filter-search')?.addEventListener('input', debounce(e => {
     STATE.ui.pipeSearch = e.target.value;
     renderPipeline();
-  });
+  }, 300));
   document.getElementById('pipeline-filter-priority')?.addEventListener('change', e => {
     STATE.ui.pipePriority = e.target.value;
     renderPipeline();
