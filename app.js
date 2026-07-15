@@ -2463,33 +2463,90 @@ async function startGeocoding() {
     
     let c = geocodeQueue.shift();
     
-    const totalInitial = geocodeQueue.length + 1; // remaining + current
     const processed = _geocodeTotal - geocodeQueue.length;
     const pct = Math.round((processed / _geocodeTotal) * 100);
     document.getElementById('rutas-geo-bar').style.width = pct + '%';
     document.getElementById('rutas-geo-text').textContent = `Procesando: ${processed}/${_geocodeTotal} — ${c.nombre.substring(0, 25)}`;
     
-    // Fetch Nominatim
-    try {
-        let query = (c._geoQuery || c.nombre) + ', Chihuahua, Mexico';
-        let res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
-        let data = await res.json();
+    // Generate fallback queries
+    const queries = [];
+    const raw = (c._geoQuery || c.nombre || '').trim();
+    if (raw) {
+        // Clean address
+        let clean = raw
+            .replace(/INT\.?\s*[0-9a-zA-Z-]*\b/gi, '')
+            .replace(/C\.?P\.?\s*\d+\b/gi, '')
+            .replace(/COL\.?\b/gi, '')
+            .replace(/\s+/g, ' ')
+            .trim();
         
-        if (data && data.length > 0) {
-            let lat = parseFloat(data[0].lat);
-            let lng = parseFloat(data[0].lon);
+        queries.push(`${clean}, Chihuahua, Chihuahua, Mexico`);
+        
+        let parts = raw.split(',').map(p => p.trim());
+        if (parts.length > 0) {
+            let street = parts[0]
+                .replace(/INT\.?\s*[0-9a-zA-Z-]*\b/gi, '')
+                .replace(/C\.?P\.?\s*\d+\b/gi, '')
+                .replace(/COL\.?\b/gi, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            queries.push(`${street}, Chihuahua, Chihuahua, Mexico`);
             
-            // Save to extras
-            if (!STATE.clientExtras[c.id]) STATE.clientExtras[c.id] = {};
-            STATE.clientExtras[c.id].lat = lat;
-            STATE.clientExtras[c.id].lng = lng;
-            saveLocal();
+            // Street only (no number)
+            let streetOnly = street.replace(/\d+/g, '').trim();
+            if (streetOnly && streetOnly !== street) {
+                queries.push(`${streetOnly}, Chihuahua, Chihuahua, Mexico`);
+                
+                // Clean prefix like Avenida, Calle, Av, C
+                let cleanStreetOnly = streetOnly.replace(/^(av\.|avenida|calle|c\.)\s+/gi, '').trim();
+                if (cleanStreetOnly && cleanStreetOnly !== streetOnly) {
+                    queries.push(`${cleanStreetOnly}, Chihuahua, Chihuahua, Mexico`);
+                }
+            }
         }
-    } catch(e) {
-        console.warn('Error geocoding', c.nombre, e);
+        
+        if (parts.length > 1) {
+            let neighborhood = parts[1].replace(/COL\.?\b/gi, '').trim();
+            if (neighborhood) {
+                queries.push(`${neighborhood}, Chihuahua, Chihuahua, Mexico`);
+            }
+        }
     }
     
-    // Throttle 1 second per Nominatim terms of use
+    // Remove duplicates
+    const uniqueQueries = [...new Set(queries)];
+    
+    // Try each query sequentially
+    let coords = null;
+    for (let q of uniqueQueries) {
+        try {
+            let res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`);
+            let data = await res.json();
+            if (data && data.length > 0) {
+                coords = {
+                    lat: parseFloat(data[0].lat),
+                    lng: parseFloat(data[0].lon)
+                };
+                console.log(`Geocoded '${c.nombre}' using query: '${q}' ->`, coords);
+                break;
+            }
+        } catch (e) {
+            console.warn('Query failed:', q, e);
+        }
+        // Small delay between fallback attempts to avoid rate limiting
+        await new Promise(r => setTimeout(r, 600));
+    }
+    
+    if (coords) {
+        if (!STATE.clientExtras[c.id]) STATE.clientExtras[c.id] = {};
+        STATE.clientExtras[c.id].lat = coords.lat;
+        STATE.clientExtras[c.id].lng = coords.lng;
+        saveLocal();
+    } else {
+        console.warn(`Could not geocode client: ${c.nombre}`);
+    }
+    
+    // Delay 1.5 seconds before next client
     setTimeout(startGeocoding, 1500);
 }
 
