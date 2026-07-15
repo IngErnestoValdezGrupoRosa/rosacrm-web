@@ -189,11 +189,11 @@
                         </div>
                     </div>
 
-                    <button class="btn btn-primary" id="btn-quick-client">
-                        <i data-lucide="user-plus"></i> + Agregar Cliente
+                    <button class="btn btn-primary header-section-btn" id="btn-quick-client" data-section="pipeline" style="display:none;">
+                        <i data-lucide="user-plus"></i> + Agregar Cliente al Pipeline
                     </button>
-                    <button class="btn btn-secondary" id="btn-quick-deal">
-                        <i data-lucide="plus"></i> Nuevo Negocio
+                    <button class="btn btn-secondary header-section-btn" id="btn-quick-deal" data-section="clientes" style="display:none;">
+                        <i data-lucide="plus"></i> + Nuevo Negocio
                     </button>
                 </div>
             </header>
@@ -556,7 +556,10 @@
                         </div>
                         <select id="client-filter-zone">
                             <option value="all">Todas las Zonas</option>
-                            <!-- Se llena dinámicamente -->
+                            <option value="Norte">Norte</option>
+                            <option value="Sur">Sur</option>
+                            <option value="Este">Este</option>
+                            <option value="Oeste">Oeste</option>
                         </select>
                         <select id="client-filter-industry">
                             <option value="all">Todas las Industrias</option>
