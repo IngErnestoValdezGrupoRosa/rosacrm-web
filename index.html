@@ -667,7 +667,7 @@
             </section>
 
             <!-- SECCIÓN: RUTAS Y MAPAS -->
-            <section id="section-rutas" class="content-section" style="display:flex; flex-direction:column; height: 100%;">
+            <section id="section-rutas" class="content-section">
                 <div class="rutas-header glass" style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-radius:var(--radius-lg); margin-bottom:16px;">
                     <div style="display:flex; gap:12px; align-items:center;">
                         <div class="filter-group">
@@ -961,12 +961,24 @@
                 <div class="detail-section mt-4">
                     <h4>Descripción Comercial</h4>
                     <div class="detail-text-block">
-                        <strong>¿A qué se dedica?</strong>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <strong>¿A qué se dedica?</strong>
+                            <button class="btn-inline-edit" onclick="toggleInlineEdit('det-desc','edit-inline-desc')" title="Editar">
+                                <i data-lucide="pencil" style="width:13px;height:13px;"></i>
+                            </button>
+                        </div>
                         <p id="det-desc">Descripción de la empresa...</p>
+                        <textarea id="edit-inline-desc" class="inline-edit-field hidden" rows="2" placeholder="Escribe a qué se dedica esta empresa..."></textarea>
                     </div>
                     <div class="detail-text-block mt-2">
-                        <strong>¿Quiénes son sus clientes?</strong>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <strong>¿Quiénes son sus clientes?</strong>
+                            <button class="btn-inline-edit" onclick="toggleInlineEdit('det-customers','edit-inline-customers')" title="Editar">
+                                <i data-lucide="pencil" style="width:13px;height:13px;"></i>
+                            </button>
+                        </div>
                         <p id="det-customers">Descripción de sus clientes...</p>
+                        <textarea id="edit-inline-customers" class="inline-edit-field hidden" rows="2" placeholder="Escribe quiénes son los clientes de esta empresa..."></textarea>
                     </div>
                 </div>
 
@@ -1128,6 +1140,18 @@
                             <input type="number" id="edit-client-ventas" min="0" placeholder="0" readonly
                                    style="opacity:.6;cursor:not-allowed;" title="Valor calculado desde Supabase">
                         </div>
+                    </div>
+
+                    <!-- Descripción Comercial -->
+                    <div class="form-group">
+                        <label for="edit-client-descripcion">¿A qué se dedica la empresa?</label>
+                        <textarea id="edit-client-descripcion" rows="2"
+                            placeholder="Describe a qué se dedica esta empresa o negocio…"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-client-clientes">¿Quiénes son sus clientes?</label>
+                        <textarea id="edit-client-clientes" rows="2"
+                            placeholder="Describe el tipo de clientes que atiende esta empresa…"></textarea>
                     </div>
 
                     <!-- Notas internas -->
