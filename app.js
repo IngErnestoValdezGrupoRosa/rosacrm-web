@@ -155,14 +155,16 @@ function mergedClient(c) {
   const ex = STATE.clientExtras[c.id] || {};
   return {
     ...c,
-    nombre:    ex.nombre    || c.nombre,
-    contacto:  ex.contacto  || c.contacto,
-    telefono1: ex.tel1      || c.telefono1,
-    telefono2: ex.tel2      || c.telefono2,
-    email:     ex.email     || '',
-    industria: ex.industria || '',
-    zona:      ex.zona      || c.zona,
-    notas:     ex.notas     || '',
+    nombre:      ex.nombre      || c.nombre,
+    contacto:    ex.contacto    || c.contacto,
+    telefono1:   ex.tel1        || c.telefono1,
+    telefono2:   ex.tel2        || c.telefono2,
+    email:       ex.email       || '',
+    industria:   ex.industria   || '',
+    zona:        ex.zona        || c.zona,
+    descripcion: ex.descripcion || '',
+    clientes_de: ex.clientes_de || '',
+    notas:       ex.notas       || '',
   };
 }
 
@@ -875,7 +877,11 @@ function renderPipeline() {
       const clientData = findClient(deal.clientId);
       const mc         = clientData ? mergedClient(clientData) : null;
       const empresa    = mc?.empresa  || mc?.nombre || deal.clientName || '—';
-      const contacto   = mc?.contacto || '';
+      // Clean contacto: show only name, strip emails
+      let rawContacto = mc?.contacto || '';
+      rawContacto = rawContacto.replace(/\([^)]*@[^)]*\)/g, '').replace(/\s*;\s*/g, ', ').trim();
+      if (rawContacto.includes('@')) rawContacto = rawContacto.split(/[;,]/).filter(p => !p.includes('@')).join(', ').trim();
+      const contacto = rawContacto || '';
 
       return `
         <div class="kanban-card"
@@ -1255,8 +1261,8 @@ window.openClientDetail = id => {
     }
   }
 
-  setText('det-desc',         c.notas || 'Sin notas registradas');
-  setText('det-customers',    '—');
+  setText('det-desc',         c.descripcion || c.notas || 'Sin notas registradas');
+  setText('det-customers',    c.clientes_de || '—');
   setText('det-total-bought', fmt(base.ventas + wonVal));
   setText('det-active-deals', activeCount);
 
@@ -1277,10 +1283,55 @@ window.openClientDetail = id => {
   // ── CORRECCIÓN: "Editar Expediente" → modal correcto ──────────────
   document.getElementById('btn-edit-client-from-detail')?.addEventListener('click', () => {
     closeModal('modal-client-detail');
-    openClientEditModal(id);   // ← función correcta (antes llamaba openDealModal por error)
+    openClientEditModal(id);   // ← función correcta
   }, { once: true });
 
+  // ── Inline edit: toggle and auto-save ──────────────
+  const descField = document.getElementById('edit-inline-desc');
+  const custField = document.getElementById('edit-inline-customers');
+  if (descField) descField.value = c.descripcion || '';
+  if (custField) custField.value = c.clientes_de || '';
+  // Hide both edit fields initially
+  descField?.classList.add('hidden');
+  custField?.classList.add('hidden');
+  document.getElementById('det-desc')?.classList.remove('hidden');
+  document.getElementById('det-customers')?.classList.remove('hidden');
+
+  // Auto-save on blur
+  const saveInline = () => {
+    if (!STATE.clientExtras[id]) STATE.clientExtras[id] = {};
+    STATE.clientExtras[id].descripcion = descField?.value?.trim() || '';
+    STATE.clientExtras[id].clientes_de = custField?.value?.trim() || '';
+    saveLocal();
+    // Update display text
+    setText('det-desc', STATE.clientExtras[id].descripcion || 'Sin notas registradas');
+    setText('det-customers', STATE.clientExtras[id].clientes_de || '—');
+  };
+  descField?.addEventListener('blur', saveInline);
+  custField?.addEventListener('blur', saveInline);
+
   openModal('modal-client-detail');
+  safeIcons();
+};
+
+// Toggle inline edit fields in client detail
+window.toggleInlineEdit = (displayId, editId) => {
+  const displayEl = document.getElementById(displayId);
+  const editEl = document.getElementById(editId);
+  if (!displayEl || !editEl) return;
+  
+  const isEditing = !editEl.classList.contains('hidden');
+  if (isEditing) {
+    // Save and close
+    editEl.classList.add('hidden');
+    displayEl.classList.remove('hidden');
+    editEl.dispatchEvent(new Event('blur'));
+  } else {
+    // Open edit
+    displayEl.classList.add('hidden');
+    editEl.classList.remove('hidden');
+    editEl.focus();
+  }
   safeIcons();
 };
 
@@ -1302,6 +1353,8 @@ window.openClientEditModal = id => {
   setValue('edit-client-industria',c.industria);
   setValue('edit-client-zona',     c.zona);
   setValue('edit-client-ventas',   base.ventas);   // solo lectura — valor real de Sheets
+  setValue('edit-client-descripcion', c.descripcion);
+  setValue('edit-client-clientes', c.clientes_de);
   setValue('edit-client-notas',    c.notas);
 
   // Rellenar datalist de zonas con las que ya existen
@@ -1626,19 +1679,17 @@ function bindModalForms() {
     if (!id) return;
 
     STATE.clientExtras[id] = {
-      nombre:    $v('edit-client-nombre').trim()    || undefined,
-      contacto:  $v('edit-client-contacto').trim()  || undefined,
-      tel1:      $v('edit-client-tel1').trim()       || undefined,
-      tel2:      $v('edit-client-tel2').trim()       || undefined,
-      email:     $v('edit-client-email').trim()      || undefined,
-      industria: $v('edit-client-industria').trim()  || undefined,
-      zona:      $v('edit-client-zona').trim()       || undefined,
-      notas:     $v('edit-client-notas').trim()      || undefined,
+      nombre:      $v('edit-client-nombre').trim(),
+      contacto:    $v('edit-client-contacto').trim(),
+      tel1:        $v('edit-client-tel1').trim(),
+      tel2:        $v('edit-client-tel2').trim(),
+      email:       $v('edit-client-email').trim(),
+      industria:   $v('edit-client-industria').trim(),
+      zona:        $v('edit-client-zona').trim(),
+      descripcion: $v('edit-client-descripcion').trim(),
+      clientes_de: $v('edit-client-clientes').trim(),
+      notas:       $v('edit-client-notas').trim(),
     };
-    // Limpiar undefined para no guardar basura
-    Object.keys(STATE.clientExtras[id]).forEach(k => {
-      if (STATE.clientExtras[id][k] === undefined) delete STATE.clientExtras[id][k];
-    });
 
     saveLocal();
     // Persistir cambios en Supabase
@@ -2055,7 +2106,7 @@ function renderNotifications() {
 
   // 1. Fechas que están por acercarse o vencidas (Cierre de Proyectos)
   STATE.deals.forEach(d => {
-    if (d.stage < 5 && d.status === 'activo') {
+    if (d.stage < 5 && (d.status === 'activo' || d.status === 'active' || !d.status)) {
       if (d.closeDate) {
         const closeDateObj = new Date(d.closeDate + 'T12:00:00');
         const diffDays = Math.ceil((closeDateObj - hoy) / (1000 * 60 * 60 * 24));
@@ -2087,7 +2138,7 @@ function renderNotifications() {
 
   // 2. Proyectos que atender (Estancados o Alta Prioridad/Valor)
   STATE.deals.forEach(d => {
-    if (d.stage < 5 && d.status === 'activo') {
+    if (d.stage < 5 && (d.status === 'activo' || d.status === 'active' || !d.status)) {
       const createdDate = new Date(d.createdAt || Date.now());
       const diffDays = Math.floor((hoy - createdDate) / (1000 * 60 * 60 * 24));
       
@@ -2111,7 +2162,7 @@ function renderNotifications() {
   // 3. Clientes Olvidados (Activos sin movimientos por > 30 días)
   STATE.clients.forEach(c => {
     const mc = mergedClient(c);
-    const clientDeals = STATE.deals.filter(d => d.clientId === c.id && d.stage < 5 && d.status === 'activo');
+    const clientDeals = STATE.deals.filter(d => d.clientId === c.id && d.stage < 5 && (d.status === 'activo' || d.status === 'active' || !d.status));
     if (clientDeals.length > 0) {
       const oldestActive = clientDeals.reduce((oldest, d) => {
         const dt = new Date(d.createdAt || Date.now());
