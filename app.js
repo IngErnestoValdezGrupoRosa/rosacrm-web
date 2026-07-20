@@ -2290,8 +2290,8 @@ function renderNotifications() {
       icon: 'users',
       title: `Cliente Frío: ${c.nombre}`,
       text: `Cliente sin proyectos activos. Ventas históricas: ${fmt(c.ventas)}. ¡Reactívalo!`,
-      action: `openDealModal(null, '${c.id}')`,
-      actionText: '+ Negocio'
+      action: `openClientDetail('${c.id}')`,
+      actionText: 'Gestionar'
     });
   });
 
