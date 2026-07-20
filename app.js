@@ -242,13 +242,19 @@ function setupAuth() {
   const mainAppContainer = document.getElementById('main-app-container');
   const splashScreen = document.getElementById('splash-screen');
 
+  let authInitialized = false;
   // Listener para el estado de autenticación
   _supabase.auth.onAuthStateChange((event, session) => {
     console.log('[RosaCRM] Auth event:', event);
-    if (STATE.auth.session?.access_token === session?.access_token && event !== 'SIGNED_IN' && event !== 'INITIAL_SESSION') return;
+    
+    // Silently update session, but don't rebuild UI if already initialized
     STATE.auth.session = session;
     STATE.auth.user = session?.user;
+
+    if (authInitialized) return;
+
     if (session && session.user) {
+      authInitialized = true;
       authContainer.classList.add('hidden');
       const userName = session.user.user_metadata?.full_name || session.user.email.split('@')[0];
       document.getElementById('sidebar-user-name').textContent = userName;
@@ -276,6 +282,7 @@ function setupAuth() {
         renderAll();
       }
     } else {
+      authInitialized = false;
       authContainer.classList.remove('hidden');
       mainAppContainer.classList.add('hidden');
       if (splashScreen) {
