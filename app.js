@@ -339,7 +339,11 @@ function setupAuth() {
         if (data.user && data.user.identities && data.user.identities.length === 0) {
            throw new Error("Este correo ya está registrado.");
         }
-        sucDiv.textContent = "Registro exitoso. Serás redirigido.";
+        if (data.session) {
+          sucDiv.textContent = "Registro exitoso. Entrando a la plataforma...";
+        } else {
+          sucDiv.textContent = "Revisa tu correo electrónico para confirmar tu cuenta.";
+        }
         sucDiv.classList.remove('hidden');
       }
     } catch (err) {
