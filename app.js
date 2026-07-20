@@ -617,6 +617,26 @@ function bindHeaderButtons() {
   });
 
   // Toggle panel de notificaciones
+  window.currentNotifTab = 'mis';
+  document.getElementById('tab-notif-mis')?.addEventListener('click', (e) => {
+    window.currentNotifTab = 'mis';
+    e.target.style.background = 'rgba(255,255,255,0.1)';
+    e.target.style.color = 'white';
+    e.target.style.border = '1px solid rgba(255,255,255,0.1)';
+    const eq = document.getElementById('tab-notif-equipo');
+    if(eq) { eq.style.background = 'transparent'; eq.style.color = 'var(--text-muted)'; eq.style.border = '1px solid transparent'; }
+    renderNotifications();
+  });
+  document.getElementById('tab-notif-equipo')?.addEventListener('click', (e) => {
+    window.currentNotifTab = 'equipo';
+    e.target.style.background = 'rgba(255,255,255,0.1)';
+    e.target.style.color = 'white';
+    e.target.style.border = '1px solid rgba(255,255,255,0.1)';
+    const mis = document.getElementById('tab-notif-mis');
+    if(mis) { mis.style.background = 'transparent'; mis.style.color = 'var(--text-muted)'; mis.style.border = '1px solid transparent'; }
+    renderNotifications();
+  });
+
   const bellBtn = document.getElementById('btn-notifications-bell');
   const panel = document.getElementById('notifications-panel');
   bellBtn?.addEventListener('click', e => {
@@ -2166,9 +2186,13 @@ function renderNotifications() {
 
   const alerts = [];
   const hoy = new Date();
+  
+  const isMisNegocios = window.currentNotifTab === 'mis';
+  const userId = STATE.auth.user?.id;
+  const relevantDeals = isMisNegocios ? STATE.deals.filter(d => d.user_id === userId) : STATE.deals;
 
   // 1. Fechas que están por acercarse o vencidas (Cierre de Proyectos)
-  STATE.deals.forEach(d => {
+  relevantDeals.forEach(d => {
     if (d.stage < 5 && (d.status === 'activo' || d.status === 'active' || !d.status)) {
       if (d.closeDate) {
         const closeDateObj = new Date(d.closeDate + 'T12:00:00');
@@ -2200,7 +2224,7 @@ function renderNotifications() {
   });
 
   // 2. Proyectos que atender (Estancados o Alta Prioridad/Valor)
-  STATE.deals.forEach(d => {
+  relevantDeals.forEach(d => {
     if (d.stage < 5 && (d.status === 'activo' || d.status === 'active' || !d.status)) {
       const createdDate = new Date(d.createdAt || Date.now());
       const diffDays = Math.floor((hoy - createdDate) / (1000 * 60 * 60 * 24));
@@ -2225,7 +2249,7 @@ function renderNotifications() {
   // 3. Clientes Olvidados (Activos sin movimientos por > 30 días)
   STATE.clients.forEach(c => {
     const mc = mergedClient(c);
-    const clientDeals = STATE.deals.filter(d => d.clientId === c.id && d.stage < 5 && (d.status === 'activo' || d.status === 'active' || !d.status));
+    const clientDeals = relevantDeals.filter(d => d.clientId === c.id && d.stage < 5 && (d.status === 'activo' || d.status === 'active' || !d.status));
     if (clientDeals.length > 0) {
       const oldestActive = clientDeals.reduce((oldest, d) => {
         const dt = new Date(d.createdAt || Date.now());
@@ -2251,7 +2275,7 @@ function renderNotifications() {
   // Limitamos a los top 3 para evitar saturación, con un resumen si hay más.
   const coldClients = STATE.clients
     .map(c => {
-      const activeCount = STATE.deals.filter(d => d.clientId === c.id && d.stage < 5).length;
+      const activeCount = relevantDeals.filter(d => d.clientId === c.id && d.stage < 5).length;
       return { client: c, activeCount };
     })
     .filter(item => item.activeCount === 0 && item.client.ventas > 0)
