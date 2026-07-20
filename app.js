@@ -2378,7 +2378,7 @@ window.applyTeamModeFilter = function() {
   if (STATE.ui.teamMode) {
     STATE.deals = [...STATE.allDeals];
   } else {
-    STATE.deals = STATE.allDeals.filter(d => !d.user_id || d.user_id === currentUserId);
+    STATE.deals = STATE.allDeals.filter(d => d.user_id === currentUserId);
   }
 };
 
